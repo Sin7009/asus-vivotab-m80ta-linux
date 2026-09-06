@@ -2,7 +2,7 @@
 Description=Asus M80TA First Boot Initialization
 ConditionPathExists=!/var/lib/m80ta-firstboot.done
 Before=ssh.service sddm.service
-After=local-fs.target
+After=local-fs.target systemd-journald.service
 
 [Service]
 Type=oneshot

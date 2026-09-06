@@ -2,25 +2,50 @@
 set -euo pipefail
 
 # ==============================================================================
-# ASUS VivoTab Note 8 (M80TA) - Safe eMMC Installer v1.1
-# Fully verified hardware checks:
-# - Strict regex filtering: ^mmcblk[0-9]+$ (ignoring boot0/boot1/rpmb partitions)
-# - Hardware attributes: Type=MMC, Removable=0, ReadOnly=0, Size >= 16GB
-# - Detection of booted device to prevent self-destruction
-# - Cleans machine-id and SSH host keys on target to prevent cloned identities
-# - Verifies non-empty BOOTIA32.EFI bootloader after installation
+# ASUS VivoTab Note 8 (M80TA) - Safe eMMC Installer v2.0
+#
+# Flags:
+#   --list     Show detected storage devices and candidates, then exit.
+#   --dry-run  Execute all checks, DMI validation, and candidate selection
+#              without making any disk modifications.
 # ==============================================================================
 
-if [ "$EUID" -ne 0 ]; then
+LIST_ONLY=0
+DRY_RUN=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --list)
+            LIST_ONLY=1
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            ;;
+        -h|--help)
+            echo "Использование: $0 [--list] [--dry-run]"
+            echo "  --list     Показать обнаруженные накопители и статус eMMC"
+            echo "  --dry-run  Выполнить все проверки без записи на диск"
+            exit 0
+            ;;
+        *)
+            echo "Неизвестный параметр: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$LIST_ONLY" -eq 0 ] && [ "$EUID" -ne 0 ]; then
     echo "Перезапуск с правами root..."
     exec sudo bash "$0" "$@"
 fi
 
+TARGET_MOUNTED=0
+
 cleanup() {
     local exit_code=$?
-    if [ -d /mnt/target ]; then
+    if [ "$TARGET_MOUNTED" -eq 1 ] && [ -d /mnt/target ]; then
         echo ""
-        echo "[*] Очистка и размонтирование временных точек монтирования..."
+        echo "[*] Очистка и безопасное размонтирование в обратном порядке..."
         set +e
         umount -l /mnt/target/dev/pts 2>/dev/null || true
         umount -l /mnt/target/dev 2>/dev/null || true
@@ -33,40 +58,58 @@ cleanup() {
         umount -l /mnt/target_btrfs 2>/dev/null || true
         rmdir /mnt/target_btrfs 2>/dev/null || true
     fi
-    if [ $exit_code -ne 0 ]; then
-        echo "ВНИМАНИЕ: Скрипт установки завершился с ошибкой (код $exit_code)!" >&2
+    if [ $exit_code -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$LIST_ONLY" -eq 0 ]; then
+        echo "ВНИМАНИЕ: Установка была прервана или завершилась с ошибкой ($exit_code)!" >&2
+        echo "Целевой диск может находиться в частично установленном состоянии." >&2
     fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 clear
 echo "================================================================="
-echo "   Безопасная установка Debian 13 на внутреннюю eMMC Asus M80TA "
+echo "   Установщик Debian 13 на внутреннюю eMMC Asus VivoTab (M80TA)  "
+[ "$DRY_RUN" -eq 1 ] && echo "   РЕЖИМ ТЕСТИРОВАНИЯ (DRY-RUN): ЗАПИСЬ НА ДИСК ОТКЛЮЧЕНА!      "
 echo "================================================================="
+echo ""
+
+# 0. Проверка модели устройства через DMI
+SYS_MODEL="Unknown"
+if [ -f /sys/class/dmi/id/product_name ]; then
+    SYS_MODEL=$(cat /sys/class/dmi/id/product_name)
+elif command -v dmidecode >/dev/null 2>&1; then
+    SYS_MODEL=$(dmidecode -s system-product-name 2>/dev/null || echo "Unknown")
+fi
+echo "[*] Модель устройства (DMI): ${SYS_MODEL}"
+if ! echo "${SYS_MODEL}" | grep -qiE 'M80TA|VivoTab|ASUSTeK'; then
+    echo "ПРЕДУПРЕЖДЕНИЕ: DMI-модель не совпадает с Asus M80TA (${SYS_MODEL})."
+fi
 echo ""
 
 # 1. Определение текущего загрузочного носителя
 ROOT_SRC=$(findmnt -n -o SOURCE / 2>/dev/null || true)
 if [ -z "$ROOT_SRC" ]; then
-    echo "КРИТИЧЕСКАЯ ОШИБКА: Не удалось определить исходный корневой раздел (findmnt /)!" >&2
+    echo "КРИТИЧЕСКАЯ ОШИБКА: Не удалось определить источник корневого раздела (findmnt /)!" >&2
     exit 1
 fi
 
-BOOTED_DEV=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null || true)
+# Надежно удаляем Btrfs-суффиксы вида [/@] или [/subvol]
+ROOT_SRC_CLEAN=$(echo "$ROOT_SRC" | sed -E 's/\[.*\]//')
+
+BOOTED_DEV=$(lsblk -no PKNAME "$ROOT_SRC_CLEAN" 2>/dev/null || true)
 if [ -z "$BOOTED_DEV" ]; then
-    BOOTED_DEV=$(echo "$ROOT_SRC" | sed -E 's/p?[0-9]+$//; s|^/dev/||')
+    BOOTED_DEV=$(echo "$ROOT_SRC_CLEAN" | sed -E 's/p?[0-9]+$//; s|^/dev/||')
 fi
 
 if [ -z "$BOOTED_DEV" ]; then
-    echo "КРИТИЧЕСКАЯ ОШИБКА: Не удалось определить родительский диск загрузочного носителя!" >&2
+    echo "КРИТИЧЕСКАЯ ОШИБКА: Не удалось определить диск текущего загрузочного носителя!" >&2
     exit 1
 fi
-echo "[*] Текущая система работает с накопителя: /dev/${BOOTED_DEV}"
+echo "[*] Текущая система загружена с носителя: /dev/${BOOTED_DEV} (раздел: ${ROOT_SRC_CLEAN})"
 echo ""
 
-# 2. Сканирование и фильтрация накопителей
-echo "[*] Доступные блочные устройства в системе:"
-lsblk -o NAME,TYPE,SIZE,RM,RO,TRAN,MOUNTPOINTS
+# 2. Сканирование и строгая фильтрация eMMC устройств
+echo "[*] Сканирование накопителей в системе:"
+lsblk -o NAME,TYPE,SIZE,RM,RO,TRAN,MODEL,MOUNTPOINTS
 echo ""
 
 CANDIDATES=()
@@ -74,33 +117,23 @@ for dev_path in /sys/block/*; do
     [ -e "$dev_path" ] || continue
     dev_name=$(basename "$dev_path")
 
-    # Строгое регулярное выражение: только основные блочные mmcblk устройства (^mmcblk[0-9]+$)
-    # Исключает mmcblk0boot0, mmcblk0boot1, mmcblk0rpmb, loop-устройства и т.д.
+    # Принимаем ТОЛЬКО имена вида ^mmcblk[0-9]+$
+    # Отсекаем mmcblk0boot0, mmcblk0boot1, mmcblk0rpmb, sdX, loopX, nvmeX
     if ! [[ "$dev_name" =~ ^mmcblk[0-9]+$ ]]; then
         continue
     fi
 
     dev_node="/dev/${dev_name}"
 
-    # Проверка типа устройства в mmc подсистеме
     dev_type="UNKNOWN"
-    if [ -f "${dev_path}/device/type" ]; then
-        dev_type=$(cat "${dev_path}/device/type")
-    fi
+    [ -f "${dev_path}/device/type" ] && dev_type=$(cat "${dev_path}/device/type")
 
-    # Проверка съемности (0 = non-removable, 1 = removable)
     is_removable="1"
-    if [ -f "${dev_path}/removable" ]; then
-        is_removable=$(cat "${dev_path}/removable")
-    fi
+    [ -f "${dev_path}/removable" ] && is_removable=$(cat "${dev_path}/removable")
 
-    # Проверка режима только для чтения (0 = read-write, 1 = read-only)
     is_ro="0"
-    if [ -f "${dev_path}/ro" ]; then
-        is_ro=$(cat "${dev_path}/ro")
-    fi
+    [ -f "${dev_path}/ro" ] && is_ro=$(cat "${dev_path}/ro")
 
-    # Проверка размера в байтах (eMMC M80TA имеет объем 32 или 64 ГБ, минимум 16 ГБ)
     size_bytes=0
     if [ -f "${dev_path}/size" ]; then
         size_sectors=$(cat "${dev_path}/size")
@@ -109,44 +142,66 @@ for dev_path in /sys/block/*; do
     size_gb=$(awk "BEGIN {printf \"%.1f\", $size_bytes/1024/1024/1024}")
 
     hw_name="N/A"
-    if [ -f "${dev_path}/device/name" ]; then
-        hw_name=$(cat "${dev_path}/device/name")
-    fi
+    [ -f "${dev_path}/device/name" ] && hw_name=$(cat "${dev_path}/device/name")
 
-    # Исключаем устройство, с которого загружена текущая система
+    # Проверка: исключаем загрузочный носитель
     if [ "$dev_name" = "$BOOTED_DEV" ]; then
         echo "[-] Пропуск $dev_node ($size_gb GB): это текущий загрузочный носитель!"
         continue
     fi
 
-    # Проверка требований к eMMC:
-    # 1. Type == MMC (не SD)
-    # 2. Removable == 0 (впаянная память)
+    # Проверка: смонтирован ли диск или его разделы
+    is_mounted=0
+    if findmnt -S "$dev_node" >/dev/null 2>&1 || lsblk -no MOUNTPOINTS "$dev_node" | grep -qv '^$'; then
+        is_mounted=1
+    fi
+
+    # Проверка использования в swap
+    is_swap=0
+    if swapon --show | grep -q "$dev_node"; then
+        is_swap=1
+    fi
+
+    # Критерии для внутренней eMMC планшета:
+    # 1. Type == MMC (строго не SD)
+    # 2. Removable == 0 (впаянный чип)
     # 3. Read-Only == 0
-    # 4. Объем >= 16 GB
+    # 4. Объем >= 16 GB (17179869184 байт)
     if [ "$dev_type" = "MMC" ] && [ "$is_removable" = "0" ] && [ "$is_ro" = "0" ] && [ "$size_bytes" -ge 17179869184 ]; then
-        echo "[+] Обнаружена внутренняя eMMC: $dev_node ($size_gb GB, чип: $hw_name)"
-        CANDIDATES+=("$dev_node")
+        if [ "$is_mounted" -eq 1 ] || [ "$is_swap" -eq 1 ]; then
+            echo "[!] Обнаружена eMMC $dev_node ($size_gb GB, $hw_name), но она сейчас смонтирована или используется как swap!"
+        else
+            echo "[+] Обнаружена внутренняя eMMC: $dev_node ($size_gb GB, чип: $hw_name)"
+            CANDIDATES+=("$dev_node")
+        fi
     else
-        echo "[?] Устройство $dev_node ($size_gb GB, тип: $dev_type, removable: $is_removable, ro: $is_ro) не соответствует критериям внутренней eMMC!"
+        echo "[?] Устройство $dev_node ($size_gb GB, тип: $dev_type, removable: $is_removable) — не является подходящей eMMC."
     fi
 done
 
 echo ""
+if [ "$LIST_ONLY" -eq 1 ]; then
+    echo "Список кандидатов eMMC:"
+    for cand in "${CANDIDATES[@]}"; do
+        echo "  -> $cand"
+    done
+    exit 0
+fi
+
 if [ ${#CANDIDATES[@]} -eq 0 ]; then
-    echo "КРИТИЧЕСКАЯ ОШИБКА: Подходящая внутренняя eMMC (Type=MMC, RM=0, >=16GB) не обнаружена!" >&2
+    echo "КРИТИЧЕСКАЯ ОШИБКА: Доступная внутренняя eMMC (Type=MMC, RM=0, >=16GB) не найдена!" >&2
     echo "Убедитесь, что система запущена с внешнего USB, а не установлена на планшет." >&2
     exit 1
 fi
 
-echo "Найдено подходящих кандидатов на eMMC: ${#CANDIDATES[@]}"
-for dev in "${CANDIDATES[@]}"; do
-    echo "  -> $dev"
+echo "Найдено кандидатов для установки: ${#CANDIDATES[@]}"
+for cand in "${CANDIDATES[@]}"; do
+    echo "  -> $cand"
 done
 echo ""
 
 echo "-----------------------------------------------------------------"
-echo "ТРЕБУЕТСЯ ЯВНОЕ ПОДТВЕРЖДЕНИЕ!"
+echo "ТРЕБУЕТСЯ ТОЧНОЕ ПОДТВЕРЖДЕНИЕ!"
 echo "Введите полный путь к целевому накопителю для установки (например, ${CANDIDATES[0]}):"
 read -rp "Целевой диск > " USER_INPUT_DEV
 
@@ -159,12 +214,12 @@ for cand in "${CANDIDATES[@]}"; do
 done
 
 if [ -z "$TARGET_DEV" ]; then
-    echo "ОШИБКА: Введенный диск '$USER_INPUT_DEV' не входит в список проверенных eMMC!" >&2
+    echo "ОШИБКА: Введенное имя '$USER_INPUT_DEV' не совпадает ни с одним проверенным eMMC!" >&2
     exit 1
 fi
 
 echo ""
-echo "ВНИМАНИЕ! ВСЕ РАЗДЕЛЫ И ДАННЫЕ НА $TARGET_DEV БУДУТ БЕЗВОЗВРАТНО СТЕРТЫ!"
+echo "ВНИМАНИЕ! ВСЕ ДАННЫЕ НА ДИСКЕ $TARGET_DEV БУДУТ БЕЗВОЗВРАТНО СТЕРТЫ!"
 echo "Для подтверждения уничтожения данных введите 'CONFIRM_DESTROY':"
 read -rp "Подтверждение > " CONFIRM_WORD
 
@@ -173,18 +228,29 @@ if [ "$CONFIRM_WORD" != "CONFIRM_DESTROY" ]; then
     exit 0
 fi
 
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo ""
+    echo "================================================================="
+    echo "DRY-RUN ЗАВЕРШЕН УСПЕШНО!"
+    echo "Все аппаратные критерии валидированы для $TARGET_DEV."
+    echo "Никаких изменений на диск внесено не было."
+    echo "================================================================="
+    exit 0
+fi
+
+TARGET_MOUNTED=1
+
 echo ""
-echo "[1/7] Подготовка целевого диска $TARGET_DEV..."
-# Размонтирование любых активных разделов целевого накопителя
+echo "[1/7] Безопасная очистка целевого диска $TARGET_DEV (wipefs + sgdisk)..."
 swapoff -a 2>/dev/null || true
 for part in "${TARGET_DEV}"p*; do
     [ -e "$part" ] && umount "$part" 2>/dev/null || true
 done
 
-# Затираем заголовки GPT/MBR и проверяем успешность
-dd if=/dev/zero of="$TARGET_DEV" bs=1M count=16 status=none
+wipefs -a "$TARGET_DEV"
+sgdisk --zap-all "$TARGET_DEV"
 
-echo "[2/7] Создание новой таблицы разделов GPT..."
+echo "[2/7] Создание таблицы разделов GPT..."
 parted -s "$TARGET_DEV" mklabel gpt
 parted -s "$TARGET_DEV" mkpart "M80TA_ESP" fat32 1MiB 513MiB
 parted -s "$TARGET_DEV" set 1 esp on
@@ -195,7 +261,7 @@ udevadm settle || sleep 2
 ESP_PART="${TARGET_DEV}p1"
 ROOT_PART="${TARGET_DEV}p2"
 
-echo "[3/7] Форматирование (FAT32 + Btrfs zstd:3, метка M80TA_SYS)..."
+echo "[3/7] Форматирование (FAT32 + Btrfs со сжатием zstd:3, метка M80TA_SYS)..."
 mkfs.vfat -F 32 -n "M80TA_ESP" "$ESP_PART"
 mkfs.btrfs -f -L "M80TA_SYS" "$ROOT_PART"
 
@@ -213,18 +279,19 @@ mkdir -p /mnt/target/home /mnt/target/boot/efi
 mount -o noatime,compress=zstd:3,space_cache=v2,subvol=@home "$ROOT_PART" /mnt/target/home
 mount "$ESP_PART" /mnt/target/boot/efi
 
-echo "[5/7] Синхронизация файлов системы на внутреннюю eMMC..."
-rsync -aAXv --info=progress2 \
+echo "[5/7] Копирование системы на eMMC (rsync)..."
+rsync -aAX --info=progress2 \
     --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/swapfile"} \
     / /mnt/target/
 
-echo "[6/7] Очистка идентификаторов Live-системы (machine-id и SSH host keys)..."
-# Гарантируем, что установленная eMMC получит уникальные ключи и machine-id
+echo "[6/7] Сброс идентификаторов Live-системы на целевой eMMC..."
 truncate -s 0 /mnt/target/etc/machine-id
+rm -f /mnt/target/var/lib/dbus/machine-id
+rm -f /mnt/target/var/lib/systemd/random-seed
 rm -f /mnt/target/etc/ssh/ssh_host_*
 rm -f /mnt/target/var/lib/m80ta-firstboot.done
 
-echo "[7/7] Настройка UUID, fstab и установка 32-битного UEFI GRUB..."
+echo "[7/7] Настройка GRUB (IA32) и UUID-based загрузки..."
 ESP_UUID=$(blkid -s UUID -o value "$ESP_PART")
 ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 
@@ -235,21 +302,19 @@ UUID=$ROOT_UUID  /home      btrfs  noatime,compress=zstd:3,space_cache=v2,subvol
 UUID=$ESP_UUID   /boot/efi  vfat   umask=0077                                            0  1
 EOF
 
-# Монтирование псевдо-ФС для chroot
 mount --bind /dev /mnt/target/dev
 mount --bind /dev/pts /mnt/target/dev/pts
 mount --bind /proc /mnt/target/proc
 mount --bind /sys /mnt/target/sys
 mount --bind /run /mnt/target/run
 
-# Установка GRUB без записи в NVRAM
 chroot /mnt/target grub-install --target=i386-efi --efi-directory=/boot/efi --bootloader-id=debian --no-nvram --removable
+chroot /mnt/target update-initramfs -u -k all
 chroot /mnt/target update-grub
 
-# Создание первичного grub.cfg с явным поиском по UUID раздела eMMC
 mkdir -p /mnt/target/boot/efi/EFI/BOOT
 cat <<EOF > /mnt/target/boot/efi/EFI/BOOT/grub.cfg
-# Search strictly by target eMMC root UUID to eliminate USB label collisions
+# Search strictly by target eMMC root partition UUID
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
 if [ -e (\$root)/@/boot/grub/grub.cfg ]; then
     set prefix=(\$root)/@/boot/grub
@@ -260,9 +325,8 @@ elif [ -e (\$root)/boot/grub/grub.cfg ]; then
 fi
 EOF
 
-# ВЕРИФИКАЦИЯ ЗАГРУЗЧИКА: проверяем, что BOOTIA32.EFI существует и не пуст!
+# Проверяем и при необходимости генерируем автономный загрузчик
 if [ ! -s /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI ]; then
-    echo "ВНИМАНИЕ: BOOTIA32.EFI отсутствует, генерируем через grub-mkstandalone..."
     chroot /mnt/target grub-mkstandalone \
         -O i386-efi \
         -o /boot/efi/EFI/BOOT/BOOTIA32.EFI \
@@ -271,20 +335,37 @@ if [ ! -s /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI ]; then
         "/boot/grub/grub.cfg=/boot/efi/EFI/BOOT/grub.cfg"
 fi
 
+# ВЕРИФИКАЦИЯ:
 test -s /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI || {
-    echo "КРИТИЧЕСКАЯ ОШИБКА: Файл BOOTIA32.EFI не создан или пуст!" >&2
+    echo "КРИТИЧЕСКАЯ ОШИБКА: BOOTIA32.EFI пуст или отсутствует!" >&2
     exit 1
 }
 
+if command -v file >/dev/null 2>&1; then
+    file /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI | grep -qiE 'PE32|EFI' || {
+        echo "КРИТИЧЕСКАЯ ОШИБКА: BOOTIA32.EFI не является исполняемым файлом EFI PE32!" >&2
+        exit 1
+    }
+fi
+
 test -s /mnt/target/boot/efi/EFI/BOOT/grub.cfg || {
-    echo "КРИТИЧЕСКАЯ ОШИБКА: Файл grub.cfg в ESP не создан или пуст!" >&2
+    echo "КРИТИЧЕСКАЯ ОШИБКА: grub.cfg в ESP пуст или отсутствует!" >&2
     exit 1
 }
+
+grep -q "$ROOT_UUID" /mnt/target/boot/efi/EFI/BOOT/grub.cfg || {
+    echo "КРИТИЧЕСКАЯ ОШИБКА: grub.cfg не содержит UUID целевого раздела!" >&2
+    exit 1
+}
+
+echo "[*] Синхронизация буферов диска..."
+sync
 
 echo ""
 echo "================================================================="
 echo "   УСТАНОВКА НА eMMC УСПЕШНО ЗАВЕРШЕНА И ВЕРИФИЦИРОВАНА!        "
-echo "   Загрузчик: BOOTIA32.EFI ($(stat -c %s /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI 2>/dev/null || stat -f %z /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI) байт) "
+echo "   Загрузчик: BOOTIA32.EFI ($(stat -c %s /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI 2>/dev/null || stat -f %z /mnt/target/boot/efi/EFI/BOOT/BOOTIA32.EFI) байт, PE32) "
+echo "   UUID:      $ROOT_UUID                                        "
 echo "================================================================="
 echo "Извлеките USB-флешку и перезагрузите планшет."
 echo ""
