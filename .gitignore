@@ -1,0 +1,6 @@
+output/
+*.img
+*.img.xz
+*.sha256
+*.iso
+.DS_Store

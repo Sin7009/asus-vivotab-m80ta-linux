@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Install to eMMC (Установить на планшет)
+Comment=Install Debian 13 system permanently to internal eMMC storage
+Exec=x-terminal-emulator -e sudo /usr/local/bin/install-to-emmc
+Icon=system-software-install
+Terminal=true
+Type=Application
+Categories=System;
