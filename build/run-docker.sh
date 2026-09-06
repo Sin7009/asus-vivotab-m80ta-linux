@@ -24,6 +24,7 @@ docker run --rm --privileged \
     -w /workspace \
     -e SSH_PUBKEY="${SSH_PUBKEY:-}" \
     -e BUILD_PROFILE="${BUILD_PROFILE}" \
+    -e IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-6144}" \
     debian:trixie \
     bash -c '
         set -euo pipefail

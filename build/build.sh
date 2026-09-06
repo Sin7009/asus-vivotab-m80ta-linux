@@ -34,7 +34,7 @@ fi
 COMMIT_SHORT=$(cd "${PROJECT_DIR}" && git rev-parse --short HEAD 2>/dev/null || echo "git")
 IMAGE_NAME="m80ta-debian13-${COMMIT_SHORT}-${BUILD_PROFILE}.img"
 IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME}"
-IMAGE_SIZE_MB=7680 # 7.5 GB
+IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-6144}" # 6.0 GB (гарантированно помещается на любую 8 ГБ флешку)
 
 echo "================================================================="
 echo "   Сборка образа Asus M80TA: ${IMAGE_NAME}                      "
@@ -322,7 +322,7 @@ sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/' /etc/default/grub
 # Создание второго пункта меню без ограничения C-state для проверки автономности
 cat << 'GRUB_CUSTOM' > /etc/grub.d/40_custom
 #!/bin/sh
-exec tail -n +3 $0
+exec tail -n +3 \$0
 menuentry 'Debian 13 (M80TA Normal - No C-state limit)' --class debian --class gnu-linux --class gnu --class os {
     load_video
     insmod gzio
@@ -422,16 +422,25 @@ fi
 
 sync
 
-# Демонтируем все
-cleanup
-trap - EXIT INT TERM
+# Размонтируем ФС перед проверкой
+set +e
+umount -l /mnt/rootfs/dev/pts 2>/dev/null || true
+umount -l /mnt/rootfs/dev 2>/dev/null || true
+umount -l /mnt/rootfs/proc 2>/dev/null || true
+umount -l /mnt/rootfs/sys 2>/dev/null || true
+umount -l /mnt/rootfs/run 2>/dev/null || true
+umount -l /mnt/rootfs/boot/efi 2>/dev/null || true
+umount -l /mnt/rootfs/home 2>/dev/null || true
+umount -l /mnt/rootfs 2>/dev/null || true
+umount -l /mnt/tmp_btrfs 2>/dev/null || true
+set -e
 
 echo "=== Проверка файловых систем разделов ==="
 fsck.vfat -n "${ESP_PART}"
 btrfs check --readonly "${ROOT_PART}"
 
-losetup -d "${LOOP_DEV}"
-LOOP_DEV=""
+cleanup
+trap - EXIT INT TERM
 
 echo "=== [9/9] Сжатие образа в ${IMAGE_NAME}.xz (xz -T0 -9) ==="
 xz -T0 -9 -v "${IMAGE_PATH}"
