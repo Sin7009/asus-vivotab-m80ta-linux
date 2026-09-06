@@ -5,15 +5,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 mkdir -p "${PROJECT_DIR}/output"
-chmod 777 "${PROJECT_DIR}/output"
 
-echo "Запуск сборки в привилегированном контейнере Debian 13 (Trixie)..."
+CONTAINER_NAME="m80ta-build-$$"
+
+cleanup() {
+    echo "Завершение и очистка контейнера ${CONTAINER_NAME}..."
+    docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo "Запуск сборки в привилегированном контейнере Debian 13 (Trixie) [${CONTAINER_NAME}]..."
 
 docker run --rm --privileged \
+    --name "${CONTAINER_NAME}" \
     --network host \
     -v /dev:/dev \
     -v "${PROJECT_DIR}:/workspace" \
     -w /workspace \
+    -e SSH_PUBKEY="${SSH_PUBKEY:-}" \
     debian:trixie \
     bash -c '
         set -euo pipefail
@@ -34,5 +43,4 @@ docker run --rm --privileged \
             mtools
 
         bash /workspace/build/build.sh
-        chmod -R 777 /workspace/output || true
     '

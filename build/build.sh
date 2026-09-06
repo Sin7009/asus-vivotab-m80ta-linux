@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# ASUS VivoTab Note 8 (M80TA) - Debian 13 (Trixie) Image Builder
+# ASUS VivoTab Note 8 (M80TA) - Debian 13 (Trixie) Image Builder v1.1
 # Produces bootable hybrid Live/Installer disk image with IA32 UEFI GRUB
 # ==============================================================================
 
@@ -11,7 +11,7 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${PROJECT_DIR}/output"
 mkdir -p "${OUTPUT_DIR}"
 
-IMAGE_NAME="m80ta-debian13-plasma-mobile.img"
+IMAGE_NAME="m80ta-debian13-plasma-mobile-v1.1.img"
 IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME}"
 IMAGE_SIZE_MB=7680 # 7.5 GB
 
@@ -190,12 +190,26 @@ apt-get install -y -qq --no-install-recommends \
     upower \
     power-profiles-daemon
 
-# Сеть и SSH
+# Сеть, Wi-Fi бэкенд и SSH (ЯВНО ВКЛЮЧАЕМ wpasupplicant, wireless-regdb, iw, rfkill)
 apt-get install -y -qq --no-install-recommends \
     network-manager \
     network-manager-gnome \
+    wpasupplicant \
+    wireless-regdb \
+    iw \
+    rfkill \
     openssh-server \
     avahi-daemon
+
+# Инструменты тестирования и диагностики оборудования (для TESTING.md)
+apt-get install -y -qq --no-install-recommends \
+    alsa-utils \
+    pulseaudio-utils \
+    libinput-tools \
+    evtest \
+    usbutils \
+    pciutils \
+    i2c-tools
 
 # Графическое окружение Plasma Mobile + XFCE4 fallback
 apt-get install -y -qq --no-install-recommends \
@@ -238,6 +252,10 @@ chown -R vivotab:vivotab /home/vivotab/Desktop
 # Удаляем статические SSH host keys (будут сгенерированы уникально при первом старте m80ta-firstboot)
 rm -f /etc/ssh/ssh_host_*
 
+# Обнуляем machine-id и маркер первого запуска
+truncate -s 0 /etc/machine-id
+rm -f /var/lib/m80ta-firstboot.done
+
 # Включение SSH и mDNS служб по умолчанию
 systemctl enable ssh
 systemctl enable avahi-daemon
@@ -261,7 +279,7 @@ apt-get clean
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 CHROOT_EOF
 
-echo "=== [6.1/8] Настройка авторизации SSH по ключу пользователя ==="
+echo "=== [6.1/8] Настройка авторизации SSH и преднастроенного Wi-Fi ==="
 mkdir -p /mnt/rootfs/home/vivotab/.ssh
 if [ -f "${PROJECT_DIR}/files/authorized_keys" ]; then
     echo "Внедрение SSH-ключа из files/authorized_keys..."
@@ -278,6 +296,15 @@ if [ -f /mnt/rootfs/home/vivotab/.ssh/authorized_keys ]; then
     chmod 600 /mnt/rootfs/home/vivotab/.ssh/authorized_keys
 fi
 chown -R 1000:1000 /mnt/rootfs/home/vivotab
+
+# Если предоставлен профиль Wi-Fi, внедряем его в NetworkManager
+if [ -f "${PROJECT_DIR}/files/m80ta-wifi.nmconnection" ]; then
+    echo "Внедрение предварительно настроенного профиля Wi-Fi..."
+    mkdir -p /mnt/rootfs/etc/NetworkManager/system-connections
+    cp "${PROJECT_DIR}/files/m80ta-wifi.nmconnection" /mnt/rootfs/etc/NetworkManager/system-connections/
+    chmod 600 /mnt/rootfs/etc/NetworkManager/system-connections/*
+    chown root:root /mnt/rootfs/etc/NetworkManager/system-connections/*
+fi
 
 echo "=== [7/8] Проверка и создание отказоустойчивого загрузчика IA32 ==="
 mkdir -p /mnt/rootfs/boot/efi/EFI/BOOT
@@ -306,6 +333,17 @@ if [ ! -f /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ] || [ ! -s /mnt/rootfs/boo
         "/boot/grub/grub.cfg=/boot/efi/EFI/BOOT/grub.cfg"
 fi
 
+# Строгая валидация файлов загрузчика
+test -s /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI || {
+    echo "ОШИБКА: BOOTIA32.EFI не сформирован или пуст!" >&2
+    exit 1
+}
+
+test -s /mnt/rootfs/boot/efi/EFI/BOOT/grub.cfg || {
+    echo "ОШИБКА: grub.cfg в ESP не сформирован или пуст!" >&2
+    exit 1
+}
+
 echo "Содержимое каталога EFI/BOOT:"
 ls -lh /mnt/rootfs/boot/efi/EFI/BOOT/
 
@@ -317,6 +355,7 @@ echo "=== [8/8] Сжатие образа в ${IMAGE_NAME}.xz (xz -T0 -9) ==="
 xz -T0 -9 -v "${IMAGE_PATH}"
 
 sha256sum "${IMAGE_PATH}.xz" > "${IMAGE_PATH}.xz.sha256"
+chmod 644 "${IMAGE_PATH}.xz" "${IMAGE_PATH}.xz.sha256"
 
 echo "================================================================="
 echo "   СБОРКА УСПЕШНО ЗАВЕРШЕНА!                                     "
