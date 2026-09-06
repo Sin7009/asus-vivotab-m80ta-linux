@@ -39,23 +39,34 @@
 
 ---
 
-## 🚀 Быстрый старт: Запись и запуск
+## 🚀 Быстрый старт: Скачивание, запись и запуск
 
-### 1. Запись образа на флешку
-Скачайте готовый архив `m80ta-debian13-plasma-mobile.img.xz` и запишите его на USB-флешку объемом от 8 ГБ:
-- **Графически:** Через [BalenaEtcher](https://etcher.balena.io/) или [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (они умеют распаковывать `.xz` на лету).
+### 1. Скачивание готового образа
+
+Образ собран и готов к загрузке:
+- **Файл:** `m80ta-debian13-plasma-mobile.img.xz` (~2.01 ГБ)
+- **SHA256:** `e6c18cb28639d433a0fa78768c43158aaa9573d0c261fa5f1a3049106a48b90d`
+
+Команда для скачивания на Mac/ПК:
+```bash
+scp de-hz-dev-dl-worker:/srv/build-m80ta/output/m80ta-debian13-plasma-mobile.img.xz ~/Downloads/
+```
+
+### 2. Запись образа на флешку
+Запишите скачанный файл на USB-флешку или MicroSD карту объемом от 8 ГБ:
+- **Графически:** Через [BalenaEtcher](https://etcher.balena.io/) или [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (они распаковывают `.xz` автоматически).
 - **Консолью (Linux / macOS):**
   ```bash
-  xz -dc m80ta-debian13-plasma-mobile.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+  xz -dc ~/Downloads/m80ta-debian13-plasma-mobile.img.xz | sudo dd of=/dev/rdiskX bs=4M status=progress conv=fsync
   ```
 
-### 2. Загрузка планшета
+### 3. Загрузка планшета
 1. Подключите записанную флешку к планшету через **Micro-USB OTG переходник** (рекомендуется подключить и USB-клавиатуру через хаб на случай первого входа).
 2. Зажмите кнопку **Уменьшения громкости (Volume Down)** и, удерживая её, нажмите **Кнопку включения (Power)**.
 3. В появившемся меню загрузки UEFI выберите ваш USB-накопитель.
 4. Система запустится в Live-режиме прямо в графическую оболочку Plasma Mobile.
 
-### 3. Проверка периферии в Live-режиме
+### 4. Проверка периферии в Live-режиме
 Перед установкой на диск проверьте:
 - Работу сенсорного экрана и стилуса Wacom;
 - Подключение к Wi-Fi (через панель Plasma Mobile);
