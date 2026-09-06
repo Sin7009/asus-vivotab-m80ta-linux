@@ -4,3 +4,6 @@ output/
 *.sha256
 *.iso
 .DS_Store
+files/authorized_keys
+build.log
+build.pid

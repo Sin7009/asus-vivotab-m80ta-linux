@@ -106,11 +106,14 @@ cat << 'EOF' > /mnt/rootfs/etc/hosts
 EOF
 
 # Копируем конфигурационные файлы из проекта
-mkdir -p /mnt/rootfs/etc/systemd/system /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg
+mkdir -p /mnt/rootfs/etc/systemd/system /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg /mnt/rootfs/etc/ssh/sshd_config.d
 cp "${PROJECT_DIR}/files/zram-generator.conf" /mnt/rootfs/etc/systemd/zram-generator.conf
 cp "${PROJECT_DIR}/files/99-zram.conf" /mnt/rootfs/etc/sysctl.d/99-zram.conf
 cp "${PROJECT_DIR}/files/sddm-autologin.conf" /mnt/rootfs/etc/sddm.conf.d/autologin.conf
 cp "${PROJECT_DIR}/files/baloofilerc" /mnt/rootfs/etc/xdg/baloofilerc
+
+# Конфигурация защищенного SSH
+cp "${PROJECT_DIR}/files/10-m80ta-ssh.conf" /mnt/rootfs/etc/ssh/sshd_config.d/10-m80ta.conf
 
 # Скрипт и сервис первого безопасного старта
 cp "${PROJECT_DIR}/files/m80ta-firstboot.sh" /mnt/rootfs/usr/local/bin/m80ta-firstboot.sh
@@ -216,10 +219,15 @@ apt-get install -y -qq --no-install-recommends \
     efibootmgr \
     mtools
 
-# Создание пользователя vivotab (без NOPASSWD и без вшитых личных ключей)
+# Создание пользователя vivotab
 useradd -m -s /bin/bash -G sudo,audio,video,input,plugdev,netdev vivotab
 echo "vivotab:vivotab" | chpasswd
-echo "root:vivotab" | chpasswd
+# Блокировка пароля root (вход только через sudo)
+passwd -l root
+
+# Разрешаем NOPASSWD для пользователя vivotab для комфортной отладки планшета
+echo "vivotab ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/vivotab
+chmod 0440 /etc/sudoers.d/vivotab
 
 # Ярлык установщика на рабочий стол vivotab
 mkdir -p /home/vivotab/Desktop
@@ -227,18 +235,16 @@ cp /usr/share/applications/install-to-emmc.desktop /home/vivotab/Desktop/
 chmod +x /home/vivotab/Desktop/install-to-emmc.desktop
 chown -R vivotab:vivotab /home/vivotab/Desktop
 
-# Удаляем статические SSH-ключи хоста из образа (будут сгенерированы на первом старте)
+# Удаляем статические SSH host keys (будут сгенерированы уникально при первом старте m80ta-firstboot)
 rm -f /etc/ssh/ssh_host_*
 
-# SSH по умолчанию ОТКЛЮЧЕН до явной настройки пользователем
-systemctl disable ssh || true
-
-# Включение сервисов первого старта и оборудования
+# Включение SSH и mDNS служб по умолчанию
+systemctl enable ssh
+systemctl enable avahi-daemon
 systemctl enable m80ta-firstboot.service
 systemctl enable NetworkManager
 systemctl enable systemd-resolved
 systemctl enable sddm
-systemctl enable avahi-daemon
 systemctl enable iio-sensor-proxy
 systemctl enable power-profiles-daemon
 
@@ -254,6 +260,24 @@ update-grub
 apt-get clean
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 CHROOT_EOF
+
+echo "=== [6.1/8] Настройка авторизации SSH по ключу пользователя ==="
+mkdir -p /mnt/rootfs/home/vivotab/.ssh
+if [ -f "${PROJECT_DIR}/files/authorized_keys" ]; then
+    echo "Внедрение SSH-ключа из files/authorized_keys..."
+    cp "${PROJECT_DIR}/files/authorized_keys" /mnt/rootfs/home/vivotab/.ssh/authorized_keys
+elif [ -n "${SSH_PUBKEY:-}" ]; then
+    echo "Внедрение SSH-ключа из переменной SSH_PUBKEY..."
+    echo "${SSH_PUBKEY}" > /mnt/rootfs/home/vivotab/.ssh/authorized_keys
+else
+    echo "ВНИМАНИЕ: files/authorized_keys не найден и SSH_PUBKEY пуст. Вход по SSH будет закрыт до добавления ключа!"
+fi
+
+chmod 700 /mnt/rootfs/home/vivotab/.ssh
+if [ -f /mnt/rootfs/home/vivotab/.ssh/authorized_keys ]; then
+    chmod 600 /mnt/rootfs/home/vivotab/.ssh/authorized_keys
+fi
+chown -R 1000:1000 /mnt/rootfs/home/vivotab
 
 echo "=== [7/8] Проверка и создание отказоустойчивого загрузчика IA32 ==="
 mkdir -p /mnt/rootfs/boot/efi/EFI/BOOT
