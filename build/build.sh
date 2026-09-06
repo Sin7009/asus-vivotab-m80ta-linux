@@ -249,6 +249,14 @@ apt-get install -y -qq --no-install-recommends \
 apt-get install -y -qq --no-install-recommends \
     plasma-mobile \
     plasma-mobile-core \
+    qml-module-org-kde-kirigami-addons-formcard \
+    qml-module-org-kde-kirigami-addons-settings \
+    qml-module-org-kde-kirigami-addons-labs-mobileform \
+    qml-module-org-kde-kirigami-addons-datetime \
+    qml-module-org-kde-kirigami-addons-components \
+    qml-module-org-kde-kirigami-addons-delegates \
+    qml-module-org-kde-kirigami-addons-treeview \
+    kirigami-addons-data \
     maliit-keyboard \
     polkit-kde-agent-1 \
     xwayland \
@@ -258,6 +266,12 @@ apt-get install -y -qq --no-install-recommends \
     foot \
     xournalpp \
     falkon
+
+# Отключение визарда initial-start (прямой вход на рабочий стол)
+mkdir -p /etc/xdg/autostart
+if [ -f /etc/xdg/autostart/org.kde.plasma-mobile-initial-start.desktop ]; then
+    echo "Hidden=true" >> /etc/xdg/autostart/org.kde.plasma-mobile-initial-start.desktop
+fi
 
 # Загрузчик GRUB 32-bit UEFI
 apt-get install -y -qq --no-install-recommends \
