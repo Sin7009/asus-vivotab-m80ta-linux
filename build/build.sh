@@ -267,10 +267,21 @@ apt-get install -y -qq --no-install-recommends \
     efibootmgr \
     mtools
 
-# Создание пользователя vivotab
+# Создание пользователя vivotab (пароль 1234 для удобного ввода с сенсорного PIN-пада)
 useradd -m -s /bin/bash -G sudo,audio,video,input,plugdev,netdev vivotab
-echo "vivotab:vivotab" | chpasswd
+echo "vivotab:1234" | chpasswd
 passwd -l root
+
+# Отключение блокировки экрана для мобильного планшета
+mkdir -p /etc/xdg /home/vivotab/.config
+cat << 'KSCREENLOCKER_EOF' > /etc/xdg/kscreenlockerrc
+[Daemon]
+Autolock=false
+LockOnResume=false
+Timeout=0
+KSCREENLOCKER_EOF
+cp /etc/xdg/kscreenlockerrc /home/vivotab/.config/kscreenlockerrc
+chown -R 1000:1000 /home/vivotab/.config
 
 # Настройка sudo в зависимости от профиля
 if [ "${BUILD_PROFILE}" = "personal-debug" ]; then
