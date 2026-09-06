@@ -268,10 +268,20 @@ apt-get install -y -qq --no-install-recommends \
     falkon
 
 # Отключение визарда initial-start (прямой вход на рабочий стол)
-mkdir -p /etc/xdg/autostart
-if [ -f /etc/xdg/autostart/org.kde.plasma-mobile-initial-start.desktop ]; then
-    echo "Hidden=true" >> /etc/xdg/autostart/org.kde.plasma-mobile-initial-start.desktop
-fi
+mkdir -p /etc/xdg/autostart /home/vivotab/.config/autostart
+find /etc/xdg/autostart -iname '*initial-start*' -exec sh -c 'echo "Hidden=true" >> "$1"' _ {} \; 2>/dev/null || true
+cat << 'AUTOLOAD_EOF' > /home/vivotab/.config/autostart/org.kde.plasma-mobile-initial-start.desktop
+[Desktop Entry]
+Type=Application
+Name=Plasma Mobile Initial Start
+Exec=true
+Hidden=true
+NoDisplay=true
+X-KDE-autostart-phase=0
+AUTOLOAD_EOF
+cp /home/vivotab/.config/autostart/org.kde.plasma-mobile-initial-start.desktop /home/vivotab/.config/autostart/plasma-mobile-initial-start.desktop
+chown -R 1000:1000 /home/vivotab/.config/autostart
+
 
 # Загрузчик GRUB 32-bit UEFI
 apt-get install -y -qq --no-install-recommends \
