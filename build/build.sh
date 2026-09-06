@@ -269,7 +269,7 @@ apt-get install -y -qq --no-install-recommends \
 
 # Отключение визарда initial-start (прямой вход на рабочий стол)
 mkdir -p /etc/xdg/autostart /home/vivotab/.config/autostart
-find /etc/xdg/autostart -iname '*initial-start*' -exec sh -c 'echo "Hidden=true" >> "$1"' _ {} \; 2>/dev/null || true
+find /etc/xdg/autostart -iname '*initial-start*' -exec sh -c 'echo "Hidden=true" >> "\$1"' _ {} \; 2>/dev/null || true
 cat << 'AUTOLOAD_EOF' > /home/vivotab/.config/autostart/org.kde.plasma-mobile-initial-start.desktop
 [Desktop Entry]
 Type=Application
