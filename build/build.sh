@@ -249,13 +249,16 @@ apt-get install -y -qq --no-install-recommends \
 apt-get install -y -qq --no-install-recommends \
     plasma-mobile \
     plasma-mobile-core \
-    qml-module-org-kde-kirigami-addons-formcard \
-    qml-module-org-kde-kirigami-addons-settings \
-    qml-module-org-kde-kirigami-addons-labs-mobileform \
-    qml-module-org-kde-kirigami-addons-datetime \
-    qml-module-org-kde-kirigami-addons-components \
-    qml-module-org-kde-kirigami-addons-delegates \
-    qml-module-org-kde-kirigami-addons-treeview \
+    qml6-module-org-kde-kirigamiaddons-formcard \
+    qml6-module-org-kde-kirigamiaddons-settings \
+    qml6-module-org-kde-kirigamiaddons-labs-components \
+    qml6-module-org-kde-kirigamiaddons-datetime \
+    qml6-module-org-kde-kirigamiaddons-components \
+    qml6-module-org-kde-kirigamiaddons-delegates \
+    qml6-module-org-kde-kirigamiaddons-sounds \
+    qml6-module-org-kde-kirigamiaddons-statefulapp \
+    qml6-module-org-kde-kirigamiaddons-tableview \
+    qml6-module-org-kde-kirigamiaddons-treeview \
     kirigami-addons-data \
     maliit-keyboard \
     polkit-kde-agent-1 \
