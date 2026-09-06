@@ -19,11 +19,11 @@ echo "=== [1/8] Создание разреженного образа диск�
 rm -f "${IMAGE_PATH}" "${IMAGE_PATH}.xz" "${IMAGE_PATH}.xz.sha256"
 truncate -s "${IMAGE_SIZE_MB}M" "${IMAGE_PATH}"
 
-echo "=== [2/8] Разметка GPT (ESP 512MB + Btrfs Root) ==="
+echo "=== [2/8] Разметка GPT (ESP 512MB + Btrfs Live Root) ==="
 parted -s "${IMAGE_PATH}" mklabel gpt
-parted -s "${IMAGE_PATH}" mkpart "ESP" fat32 1MiB 513MiB
+parted -s "${IMAGE_PATH}" mkpart "M80TA_ESP" fat32 1MiB 513MiB
 parted -s "${IMAGE_PATH}" set 1 esp on
-parted -s "${IMAGE_PATH}" mkpart "M80TA_ROOT" btrfs 513MiB 100%
+parted -s "${IMAGE_PATH}" mkpart "M80TA_LIVE" btrfs 513MiB 100%
 
 echo "=== [3/8] Настройка loop-устройства и форматирование ==="
 LOOP_DEV=$(losetup -fP --show "${IMAGE_PATH}")
@@ -54,7 +54,8 @@ ROOT_PART="${LOOP_DEV}p2"
 udevadm settle || sleep 2
 
 mkfs.vfat -F 32 -n "M80TA_ESP" "${ESP_PART}"
-mkfs.btrfs -f -L "M80TA_ROOT" "${ROOT_PART}"
+# Помечаем Live-образ как M80TA_LIVE, исключая конфликт меток с M80TA_SYS на eMMC
+mkfs.btrfs -f -L "M80TA_LIVE" "${ROOT_PART}"
 
 # Создаем субтома Btrfs
 mkdir -p /mnt/tmp_btrfs
@@ -105,13 +106,18 @@ cat << 'EOF' > /mnt/rootfs/etc/hosts
 EOF
 
 # Копируем конфигурационные файлы из проекта
-mkdir -p /mnt/rootfs/etc/systemd /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg
+mkdir -p /mnt/rootfs/etc/systemd/system /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg
 cp "${PROJECT_DIR}/files/zram-generator.conf" /mnt/rootfs/etc/systemd/zram-generator.conf
 cp "${PROJECT_DIR}/files/99-zram.conf" /mnt/rootfs/etc/sysctl.d/99-zram.conf
 cp "${PROJECT_DIR}/files/sddm-autologin.conf" /mnt/rootfs/etc/sddm.conf.d/autologin.conf
 cp "${PROJECT_DIR}/files/baloofilerc" /mnt/rootfs/etc/xdg/baloofilerc
 
-# Скрипт 1-Click установки на eMMC
+# Скрипт и сервис первого безопасного старта
+cp "${PROJECT_DIR}/files/m80ta-firstboot.sh" /mnt/rootfs/usr/local/bin/m80ta-firstboot.sh
+chmod +x /mnt/rootfs/usr/local/bin/m80ta-firstboot.sh
+cp "${PROJECT_DIR}/files/m80ta-firstboot.service" /mnt/rootfs/etc/systemd/system/m80ta-firstboot.service
+
+# Безопасный скрипт 1-Click установки на eMMC
 cp "${PROJECT_DIR}/files/install-to-emmc.sh" /mnt/rootfs/usr/local/bin/install-to-emmc
 chmod +x /mnt/rootfs/usr/local/bin/install-to-emmc
 mkdir -p /mnt/rootfs/usr/share/applications
@@ -155,11 +161,12 @@ echo "ru_RU.UTF-8 UTF-8" >> /etc/locale.gen
 locale-gen
 update-locale LANG=en_US.UTF-8
 
-# Ядро и прошивки
+# Ядро и прошивки (включая критический firmware-intel-sound для DSP SST)
 apt-get install -y -qq --no-install-recommends \
     linux-image-amd64 \
     intel-microcode \
     firmware-brcm80211 \
+    firmware-intel-sound \
     firmware-linux-nonfree \
     firmware-misc-nonfree
 
@@ -209,22 +216,10 @@ apt-get install -y -qq --no-install-recommends \
     efibootmgr \
     mtools
 
-# Создание пользователя vivotab
+# Создание пользователя vivotab (без NOPASSWD и без вшитых личных ключей)
 useradd -m -s /bin/bash -G sudo,audio,video,input,plugdev,netdev vivotab
 echo "vivotab:vivotab" | chpasswd
 echo "root:vivotab" | chpasswd
-
-# Права sudo без пароля
-echo "vivotab ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/vivotab
-chmod 0440 /etc/sudoers.d/vivotab
-
-# Внедрение SSH ключа
-mkdir -p /home/vivotab/.ssh /root/.ssh
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAING3W3cV+j3wYoGAp85wSGbhLEX3LYoCoERsBsXn+cjP keenetic" > /home/vivotab/.ssh/authorized_keys
-cp /home/vivotab/.ssh/authorized_keys /root/.ssh/authorized_keys
-chmod 700 /home/vivotab/.ssh /root/.ssh
-chmod 600 /home/vivotab/.ssh/authorized_keys /root/.ssh/authorized_keys
-chown -R vivotab:vivotab /home/vivotab/.ssh
 
 # Ярлык установщика на рабочий стол vivotab
 mkdir -p /home/vivotab/Desktop
@@ -232,9 +227,14 @@ cp /usr/share/applications/install-to-emmc.desktop /home/vivotab/Desktop/
 chmod +x /home/vivotab/Desktop/install-to-emmc.desktop
 chown -R vivotab:vivotab /home/vivotab/Desktop
 
-# Генерация ключей хоста SSH и включение сервисов
-ssh-keygen -A
-systemctl enable ssh
+# Удаляем статические SSH-ключи хоста из образа (будут сгенерированы на первом старте)
+rm -f /etc/ssh/ssh_host_*
+
+# SSH по умолчанию ОТКЛЮЧЕН до явной настройки пользователем
+systemctl disable ssh || true
+
+# Включение сервисов первого старта и оборудования
+systemctl enable m80ta-firstboot.service
 systemctl enable NetworkManager
 systemctl enable systemd-resolved
 systemctl enable sddm
@@ -258,21 +258,20 @@ CHROOT_EOF
 echo "=== [7/8] Проверка и создание отказоустойчивого загрузчика IA32 ==="
 mkdir -p /mnt/rootfs/boot/efi/EFI/BOOT
 
-# Создаем standalone загрузчик с встроенными модулями и прямым поиском Btrfs корня
-cat << 'EOF' > /tmp/embedded_grub.cfg
-search --no-floppy --set=root --label M80TA_ROOT
-if [ -e ($root)/@/boot/grub/grub.cfg ]; then
-    set prefix=($root)/@/boot/grub
-    configfile ($root)/@/boot/grub/grub.cfg
-elif [ -e ($root)/boot/grub/grub.cfg ]; then
-    set prefix=($root)/boot/grub
-    configfile ($root)/boot/grub/grub.cfg
+# Первичный grub.cfg с явным поиском по UUID root-раздела текущего носителя
+cat << EOF > /mnt/rootfs/boot/efi/EFI/BOOT/grub.cfg
+# Search strictly by current root partition UUID
+search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
+if [ -e (\$root)/@/boot/grub/grub.cfg ]; then
+    set prefix=(\$root)/@/boot/grub
+    configfile (\$root)/@/boot/grub/grub.cfg
+elif [ -e (\$root)/boot/grub/grub.cfg ]; then
+    set prefix=(\$root)/boot/grub
+    configfile (\$root)/boot/grub/grub.cfg
 fi
 EOF
 
-cp /tmp/embedded_grub.cfg /mnt/rootfs/boot/efi/EFI/BOOT/grub.cfg
-
-# Если grub-install не создал BOOTIA32.EFI или создал пустой, генерируем полноценный standalone EFI
+# Автономный BOOTIA32.EFI
 if [ ! -f /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ] || [ ! -s /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ]; then
     echo "Генерация автономного BOOTIA32.EFI через grub-mkstandalone..."
     chroot /mnt/rootfs grub-mkstandalone \

@@ -1,0 +1,14 @@
+[Unit]
+Description=Asus M80TA First Boot Initialization
+ConditionPathExists=!/var/lib/m80ta-firstboot.done
+Before=ssh.service sddm.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/m80ta-firstboot.sh
+ExecStartPost=/bin/touch /var/lib/m80ta-firstboot.done
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
