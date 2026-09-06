@@ -15,8 +15,8 @@ IMAGE_NAME="m80ta-debian13-plasma-mobile.img"
 IMAGE_PATH="${OUTPUT_DIR}/${IMAGE_NAME}"
 IMAGE_SIZE_MB=7680 # 7.5 GB
 
-echo "=== [1/8] Создание пустого образа диска (${IMAGE_SIZE_MB} MB) ==="
-rm -f "${IMAGE_PATH}" "${IMAGE_PATH}.xz"
+echo "=== [1/8] Создание разреженного образа диска (${IMAGE_SIZE_MB} MB) ==="
+rm -f "${IMAGE_PATH}" "${IMAGE_PATH}.xz" "${IMAGE_PATH}.xz.sha256"
 truncate -s "${IMAGE_SIZE_MB}M" "${IMAGE_PATH}"
 
 echo "=== [2/8] Разметка GPT (ESP 512MB + Btrfs Root) ==="
@@ -135,6 +135,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
     systemd-sysv \
     systemd-timesyncd \
+    systemd-resolved \
     locales \
     sudo \
     curl \
@@ -177,11 +178,12 @@ apt-get install -y -qq --no-install-recommends \
     bluez \
     bluez-tools \
     upower \
-    tlp
+    power-profiles-daemon
 
 # Сеть и SSH
 apt-get install -y -qq --no-install-recommends \
     network-manager \
+    network-manager-gnome \
     openssh-server \
     avahi-daemon
 
@@ -190,6 +192,8 @@ apt-get install -y -qq --no-install-recommends \
     plasma-mobile \
     plasma-mobile-core \
     maliit-keyboard \
+    polkit-kde-agent-1 \
+    xwayland \
     sddm \
     xfce4 \
     xfce4-terminal \
@@ -202,7 +206,8 @@ apt-get install -y -qq --no-install-recommends \
     grub-efi-ia32 \
     grub-efi-ia32-bin \
     grub-common \
-    efibootmgr
+    efibootmgr \
+    mtools
 
 # Создание пользователя vivotab
 useradd -m -s /bin/bash -G sudo,audio,video,input,plugdev,netdev vivotab
@@ -231,10 +236,11 @@ chown -R vivotab:vivotab /home/vivotab/Desktop
 ssh-keygen -A
 systemctl enable ssh
 systemctl enable NetworkManager
+systemctl enable systemd-resolved
 systemctl enable sddm
 systemctl enable avahi-daemon
 systemctl enable iio-sensor-proxy
-systemctl enable tlp
+systemctl enable power-profiles-daemon
 
 # Настройка GRUB для Bay Trail C-state бага и ориентации консоли
 sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="intel_idle.max_cstate=1 fbcon=rotate:1 quiet splash loglevel=3"/' /etc/default/grub
@@ -249,14 +255,36 @@ apt-get clean
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 CHROOT_EOF
 
-echo "=== [7/8] Проверка и финализация загрузчика IA32 ==="
-if [ ! -f /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ]; then
-    echo "ВНИМАНИЕ: BOOTIA32.EFI не найден, дублируем grubia32.efi..."
-    mkdir -p /mnt/rootfs/boot/efi/EFI/BOOT
-    cp /mnt/rootfs/boot/efi/EFI/debian/grubia32.efi /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI 2>/dev/null || true
+echo "=== [7/8] Проверка и создание отказоустойчивого загрузчика IA32 ==="
+mkdir -p /mnt/rootfs/boot/efi/EFI/BOOT
+
+# Создаем standalone загрузчик с встроенными модулями и прямым поиском Btrfs корня
+cat << 'EOF' > /tmp/embedded_grub.cfg
+search --no-floppy --set=root --label M80TA_ROOT
+if [ -e ($root)/@/boot/grub/grub.cfg ]; then
+    set prefix=($root)/@/boot/grub
+    configfile ($root)/@/boot/grub/grub.cfg
+elif [ -e ($root)/boot/grub/grub.cfg ]; then
+    set prefix=($root)/boot/grub
+    configfile ($root)/boot/grub/grub.cfg
+fi
+EOF
+
+cp /tmp/embedded_grub.cfg /mnt/rootfs/boot/efi/EFI/BOOT/grub.cfg
+
+# Если grub-install не создал BOOTIA32.EFI или создал пустой, генерируем полноценный standalone EFI
+if [ ! -f /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ] || [ ! -s /mnt/rootfs/boot/efi/EFI/BOOT/BOOTIA32.EFI ]; then
+    echo "Генерация автономного BOOTIA32.EFI через grub-mkstandalone..."
+    chroot /mnt/rootfs grub-mkstandalone \
+        -O i386-efi \
+        -o /boot/efi/EFI/BOOT/BOOTIA32.EFI \
+        -d /usr/lib/grub/i386-efi/ \
+        --modules="part_gpt part_msdos fat btrfs normal search search_fs_uuid search_label linux" \
+        "/boot/grub/grub.cfg=/boot/efi/EFI/BOOT/grub.cfg"
 fi
 
-ls -la /mnt/rootfs/boot/efi/EFI/BOOT/
+echo "Содержимое каталога EFI/BOOT:"
+ls -lh /mnt/rootfs/boot/efi/EFI/BOOT/
 
 # Демонтируем все
 cleanup
