@@ -13,14 +13,16 @@
 
 | Функция / Узел | Статус в текущем билде | Примечание |
 | :--- | :---: | :--- |
-| **32-битный UEFI (IA32) + 64-бит CPU** | `СКОНФИГУРИРОВАНО` | Автономный `grub-efi-ia32` (`BOOTIA32.EFI`) с флагами `--no-nvram --removable` для защиты NVRAM. |
-| **Защита от Bay Trail C-state бага** | `СКОНФИГУРИРОВАНО` | По умолчанию включен режим ядра `intel_idle.max_cstate=1` (в меню GRUB доступен выбор Normal-режима). |
-| **Wacom EMR стилус и тачскрин** | `СКОНФИГУРИРОВАНО` | Сессия Plasma Mobile (Wayland), стек `libinput` и предустановленный `xournalpp`. |
-| **Экран 800×1280 и акселерометр** | `СКОНФИГУРИРОВАНО` | `fbcon=rotate:1` для tty; `iio-sensor-proxy` для автоповорота рабочего стола и дигитайзера. |
-| **Звук Intel SST (ALC5640)** | `UNTESTED` | Установлены `firmware-intel-sound` (`fw_sst_0f28.bin`), `alsa-ucm-conf` и PipeWire/WirePlumber. |
-| **Wi-Fi и Bluetooth (Broadcom)** | `UNTESTED` | Установлены `wpasupplicant`, `wireless-regdb`, `firmware-brcm80211`. Фактическая ревизия чипа уточняется по dmesg. |
+| **32-битный UEFI (IA32) + 64-бит CPU** | `РАБОТАЕТ` | Автономный `grub-efi-ia32` (`BOOTIA32.EFI`) с флагами `--no-nvram --removable` для защиты NVRAM. |
+| **Защита от Bay Trail C-state бага** | `РАБОТАЕТ` | По умолчанию включен режим ядра `intel_idle.max_cstate=1` (в меню GRUB доступен выбор Normal-режима). |
+| **Wacom EMR стилус** | `РАБОТАЕТ` | Сессия Plasma Mobile / Desktop (Wayland), стек `libinput`, поддержка силы нажима пера и palm rejection. |
+| **Экран 800×1280 и акселерометр** | `РАБОТАЕТ` | `fbcon=rotate:1` для tty; `iio-sensor-proxy` и KWin автоповорот экрана и дигитайзера. |
+| **Физические клавиши и кнопка Windows** | `РАБОТАЕТ` | Громкость (+/-), питание, блокировка поворота (`soc_button_array`). Сенсорная кнопка Windows переназначена на `KEY_LEFTMETA` (udev hwdb). |
+| **Звук Intel SST (ALC5640)** | `РАБОТАЕТ` | Стереодинамики и наушники через PipeWire 1.4.2 / WirePlumber и Realtek `bytcr-rt5640`. |
+| **Wi-Fi и Bluetooth (Broadcom)** | `РАБОТАЕТ` | Broadcom `BCM43241` (5 ГГц, линк 270 Мбит/с) и Bluetooth контроллер с прошивкой `BCM4324B3.hcd`. |
+| **Емкостный тач (палец)** | `ДРАЙВЕР ГОТОВ` | Модуль `gpio-crystalcove` v1.0 в DKMS, чип `ATML1000:00` на `/dev/input/event0`. Ожидает замену/чистку шлейфа FFC. |
+| **KDE Plasma & Набор приложений** | `УСТАНОВЛЕНО` | Plasma Mobile + KDE Plasma Desktop, Dolphin, System Settings, Discover, Konsole, Kate, Spectacle, Xournal++, MyPaint, Foliate, Haruna, Okular. |
 | **Камеры (Intel IPU2 / AtomISP)** | `EXPERIMENTAL` | Драйверы atomisp в ядре 6.12 включены, но стабильность захвата видео не гарантируется. |
-| **Одновременная зарядка и OTG** | `ТРЕБУЕТ ЖЕЛЕЗА` | Требуется аппаратный OTG Y-кабель с поддержкой ACA-режима (Accessory Charger Adapter). |
 
 ---
 

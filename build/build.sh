@@ -137,6 +137,19 @@ cp "${PROJECT_DIR}/files/sddm-autologin.conf" /mnt/rootfs/etc/sddm.conf.d/autolo
 cp "${PROJECT_DIR}/files/baloofilerc" /mnt/rootfs/etc/xdg/baloofilerc
 cp "${PROJECT_DIR}/files/10-m80ta-ssh.conf" /mnt/rootfs/etc/ssh/sshd_config.d/10-m80ta.conf
 
+# Аппаратные драйверы, сервисы и WMI-кнопки
+mkdir -p /mnt/rootfs/etc/udev/hwdb.d /mnt/rootfs/lib/firmware/brcm /mnt/rootfs/usr/src/gpio-crystalcove-1.0
+cp "${PROJECT_DIR}/files/m80ta-init-hardware" /mnt/rootfs/usr/local/bin/m80ta-init-hardware
+chmod +x /mnt/rootfs/usr/local/bin/m80ta-init-hardware
+cp "${PROJECT_DIR}/files/m80ta-hardware.service" /mnt/rootfs/etc/systemd/system/m80ta-hardware.service
+cp "${PROJECT_DIR}/files/90-asus-wmi-keys.hwdb" /mnt/rootfs/etc/udev/hwdb.d/90-asus-wmi-keys.hwdb
+cp "${PROJECT_DIR}/files/BCM4324B3.hcd" /mnt/rootfs/lib/firmware/brcm/BCM4324B3.hcd
+cp -r "${PROJECT_DIR}/files/gpio-crystalcove/"* /mnt/rootfs/usr/src/gpio-crystalcove-1.0/
+
+# Предварительная настройка экрана (автоповорот, 800x1280, 1.25x масштаб)
+mkdir -p /mnt/rootfs/home/vivotab/.config
+cp "${PROJECT_DIR}/files/kwinoutputconfig.json" /mnt/rootfs/home/vivotab/.config/kwinoutputconfig.json
+
 # Сервис первого старта
 cp "${PROJECT_DIR}/files/m80ta-firstboot.sh" /mnt/rootfs/usr/local/bin/m80ta-firstboot.sh
 chmod +x /mnt/rootfs/usr/local/bin/m80ta-firstboot.sh
@@ -214,7 +227,11 @@ apt-get install -y -qq --no-install-recommends \
     bluez \
     bluez-tools \
     upower \
-    power-profiles-daemon
+    power-profiles-daemon \
+    dkms \
+    linux-headers-amd64 \
+    python3-libgpiod \
+    gpiod
 
 # Сеть, Wi-Fi бэкенд и SSH (ЯВНО ВКЛЮЧАЕМ wpasupplicant и сетевые утилиты)
 apt-get install -y -qq --no-install-recommends \
@@ -245,10 +262,36 @@ apt-get install -y -qq --no-install-recommends \
     gdisk \
     file
 
-# Графический интерфейс
+# Графический интерфейс KDE Plasma (Desktop + Mobile) и приложения
 apt-get install -y -qq --no-install-recommends \
     plasma-mobile \
     plasma-mobile-core \
+    plasma-mobile-tweaks \
+    kde-plasma-desktop \
+    plasma-desktop \
+    systemsettings \
+    dolphin \
+    dolphin-plugins \
+    ark \
+    gwenview \
+    konsole \
+    kate \
+    kde-spectacle \
+    kinfocenter \
+    kscreen \
+    bluedevil \
+    powerdevil \
+    plasma-discover \
+    plasma-systemmonitor \
+    plasma-widgets-addons \
+    plasma-disks \
+    plasma-firewall \
+    plasma-vault \
+    breeze-gtk-theme \
+    kdeconnect \
+    fonts-noto \
+    fonts-noto-color-emoji \
+    fonts-hack \
     qml6-module-org-kde-kirigamiaddons-formcard \
     qml6-module-org-kde-kirigamiaddons-settings \
     qml6-module-org-kde-kirigamiaddons-labs-components \
@@ -264,11 +307,20 @@ apt-get install -y -qq --no-install-recommends \
     polkit-kde-agent-1 \
     xwayland \
     sddm \
-    xfce4 \
-    xfce4-terminal \
-    foot \
     xournalpp \
-    falkon
+    mypaint \
+    foliate \
+    haruna \
+    okular \
+    okular-mobile \
+    kclock \
+    kweather \
+    kcalc \
+    kpat \
+    firefox-esr \
+    firefox-esr-mobile-config \
+    falkon \
+    papirus-icon-theme
 
 # Отключение визарда initial-start (прямой вход на рабочий стол)
 mkdir -p /etc/xdg/autostart /home/vivotab/.config/autostart
@@ -345,6 +397,17 @@ systemctl enable systemd-resolved
 systemctl enable sddm
 systemctl enable iio-sensor-proxy
 systemctl enable power-profiles-daemon
+
+# Регистрация и сборка DKMS-модуля gpio-crystalcove
+if [ -d /usr/src/gpio-crystalcove-1.0 ]; then
+    dkms add -m gpio-crystalcove -v 1.0 || true
+    dkms build -m gpio-crystalcove -v 1.0 || true
+    dkms install -m gpio-crystalcove -v 1.0 || true
+fi
+
+# Активация аппаратных служб и WMI-кнопок
+systemctl enable m80ta-hardware.service || true
+systemd-hwdb update || true
 
 # Настройка GRUB меню с двумя режимами (Safe C-State и Normal)
 cat << 'GRUB_DEFAULT' > /etc/default/grub

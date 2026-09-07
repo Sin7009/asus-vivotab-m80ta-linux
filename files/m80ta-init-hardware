@@ -1,0 +1,16 @@
+#!/bin/bash
+# Ensure PMIC GPIO is loaded
+modprobe platform:crystal_cove_gpio 2>/dev/null || modprobe gpio_crystalcove 2>/dev/null
+sleep 0.5
+
+# Bind Atmel touchscreen if not already bound
+if [ -d /sys/bus/i2c/devices/i2c-ATML1000:00 ] && [ ! -d /sys/bus/i2c/devices/i2c-ATML1000:00/driver ]; then
+    echo "i2c-ATML1000:00" > /sys/bus/i2c/drivers/i2c_hid_acpi/bind 2>/dev/null || true
+fi
+
+# Reload soc_button_array if volume keys were missed during early boot
+if [ $(grep -l 'gpio-keys' /sys/class/input/input*/name 2>/dev/null | wc -l) -lt 2 ]; then
+    modprobe -r soc_button_array 2>/dev/null
+    modprobe soc_button_array 2>/dev/null
+fi
+exit 0

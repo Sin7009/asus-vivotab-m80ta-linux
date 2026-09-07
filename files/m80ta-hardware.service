@@ -1,0 +1,12 @@
+[Unit]
+Description=Asus VivoTab Note 8 Hardware Initializer (Touch & Buttons)
+After=systemd-udev-settle.service multi-user.target
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/m80ta-init-hardware
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
