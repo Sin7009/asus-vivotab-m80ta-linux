@@ -130,12 +130,13 @@ cat << 'EOF' > /mnt/rootfs/etc/hosts
 EOF
 
 # Копируем конфигурационные файлы
-mkdir -p /mnt/rootfs/etc/systemd/system /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg /mnt/rootfs/etc/ssh/sshd_config.d
+mkdir -p /mnt/rootfs/etc/systemd/system /mnt/rootfs/etc/sysctl.d /mnt/rootfs/etc/sddm.conf.d /mnt/rootfs/etc/xdg /mnt/rootfs/etc/ssh/sshd_config.d /mnt/rootfs/etc/environment.d
 cp "${PROJECT_DIR}/files/zram-generator.conf" /mnt/rootfs/etc/systemd/zram-generator.conf
 cp "${PROJECT_DIR}/files/99-zram.conf" /mnt/rootfs/etc/sysctl.d/99-zram.conf
 cp "${PROJECT_DIR}/files/sddm-autologin.conf" /mnt/rootfs/etc/sddm.conf.d/autologin.conf
 cp "${PROJECT_DIR}/files/baloofilerc" /mnt/rootfs/etc/xdg/baloofilerc
 cp "${PROJECT_DIR}/files/10-m80ta-ssh.conf" /mnt/rootfs/etc/ssh/sshd_config.d/10-m80ta.conf
+cp "${PROJECT_DIR}/files/10-wayland.conf" /mnt/rootfs/etc/environment.d/10-wayland.conf
 
 # Аппаратные драйверы, сервисы и WMI-кнопки
 mkdir -p /mnt/rootfs/etc/udev/hwdb.d /mnt/rootfs/lib/firmware/brcm /mnt/rootfs/usr/src/gpio-crystalcove-1.0
@@ -173,7 +174,8 @@ mount --bind /sys /mnt/rootfs/sys
 mount --bind /run /mnt/rootfs/run
 
 echo "=== [6/9] Установка пакетов внутри chroot ==="
-chroot /mnt/rootfs /bin/bash << CHROOT_EOF
+chroot /mnt/rootfs /bin/bash -euo pipefail << CHROOT_EOF
+set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C
 
@@ -320,7 +322,38 @@ apt-get install -y -qq --no-install-recommends \
     firefox-esr \
     firefox-esr-mobile-config \
     falkon \
-    papirus-icon-theme
+    papirus-icon-theme \
+    dconf-cli
+
+# Исправление опечатки в QML Maliit Keyboard (upstream bug: edit-clear-symoblic -> edit-clear-symbolic)
+sed -i 's/edit-clear-symoblic/edit-clear-symbolic/g' /usr/lib/x86_64-linux-gnu/maliit/keyboard2/qml/keys/BackspaceKey.qml 2>/dev/null || true
+
+# Установка масштабируемых символических иконок для клавиатуры Maliit в hicolor (Shift, Backspace, Enter, Language, Space)
+mkdir -p /usr/share/icons/hicolor/scalable/actions /usr/share/icons/hicolor/scalable/devices
+cp -n /usr/share/icons/breeze/actions/24/edit-clear-symbolic.svg /usr/share/icons/hicolor/scalable/actions/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/actions/24/language-chooser-symbolic.svg /usr/share/icons/hicolor/scalable/actions/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/devices/24/keyboard-enter-symbolic.svg /usr/share/icons/hicolor/scalable/devices/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/devices/24/keyboard-caps-disabled-symbolic.svg /usr/share/icons/hicolor/scalable/devices/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/devices/24/keyboard-caps-enabled-symbolic.svg /usr/share/icons/hicolor/scalable/devices/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/devices/24/keyboard-caps-locked-symbolic.svg /usr/share/icons/hicolor/scalable/devices/ 2>/dev/null || true
+cp -n /usr/share/icons/breeze/devices/24/keyboard-spacebar-symbolic.svg /usr/share/icons/hicolor/scalable/devices/ 2>/dev/null || true
+gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true
+
+# Настройка системных профилей dconf для Maliit: поддержка раскладок EN и RU
+mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+cat << 'DCONF_PROF_EOF' > /etc/dconf/profile/user
+user-db:user
+system-db:local
+DCONF_PROF_EOF
+cat << 'DCONF_MALIIT_EOF' > /etc/dconf/db/local.d/01-maliit
+[org/maliit/keyboard/maliit]
+enabled-languages=['en', 'ru']
+active-language='en'
+DCONF_MALIIT_EOF
+dconf update
+
+# Устранение блокировки сайтов (Google и др.) устаревшим мобильным User-Agent
+sed -i 's/^[[:space:]]*set_user_agent();/\/\/ set_user_agent();/' /usr/lib/firefox-esr/mobile-config-autoconfig.js 2>/dev/null || true
 
 # Отключение визарда initial-start (прямой вход на рабочий стол)
 mkdir -p /etc/xdg/autostart /home/vivotab/.config/autostart
@@ -347,9 +380,13 @@ apt-get install -y -qq --no-install-recommends \
     mtools
 
 # Создание пользователя vivotab (пароль 1234 для удобного ввода с сенсорного PIN-пада)
-useradd -m -s /bin/bash -G sudo,audio,video,input,plugdev,netdev vivotab
+useradd -m -s /bin/bash -G sudo,audio,video,render,input,plugdev,netdev vivotab
 echo "vivotab:1234" | chpasswd
 passwd -l root
+
+# Гарантируем наличие стандартных файлов окружения (.bashrc, .profile) и корректные права на домашнюю папку
+cp -rn /etc/skel/. /home/vivotab/
+chown -R 1000:1000 /home/vivotab
 
 # Отключение блокировки экрана для мобильного планшета
 mkdir -p /etc/xdg /home/vivotab/.config

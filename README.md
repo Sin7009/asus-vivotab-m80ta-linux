@@ -20,8 +20,9 @@
 | **Физические клавиши и кнопка Windows** | `РАБОТАЕТ` | Громкость (+/-), питание, блокировка поворота (`soc_button_array`). Сенсорная кнопка Windows переназначена на `KEY_LEFTMETA` (udev hwdb). |
 | **Звук Intel SST (ALC5640)** | `РАБОТАЕТ` | Стереодинамики и наушники через PipeWire 1.4.2 / WirePlumber и Realtek `bytcr-rt5640`. |
 | **Wi-Fi и Bluetooth (Broadcom)** | `РАБОТАЕТ` | Broadcom `BCM43241` (5 ГГц, линк 270 Мбит/с) и Bluetooth контроллер с прошивкой `BCM4324B3.hcd`. |
-| **Емкостный тач (палец)** | `ДРАЙВЕР ГОТОВ` | Модуль `gpio-crystalcove` v1.0 в DKMS, чип `ATML1000:00` на `/dev/input/event0`. Ожидает замену/чистку шлейфа FFC. |
-| **KDE Plasma & Набор приложений** | `УСТАНОВЛЕНО` | Plasma Mobile + KDE Plasma Desktop, Dolphin, System Settings, Discover, Konsole, Kate, Spectacle, Xournal++, MyPaint, Foliate, Haruna, Okular. |
+| **KDE Plasma & Набор приложений** | `РАБОТАЕТ` | Plasma Mobile + KDE Plasma Desktop, Dolphin, System Settings, Discover, Konsole, Kate, Spectacle, Xournal++, MyPaint, Foliate, Haruna, Okular. |
+| **Firefox ESR & Веб-серфинг** | `РАБОТАЕТ` | Нативный Wayland (`MOZ_ENABLE_WAYLAND=1`), сенсорная оптимизация, кинетическая прокрутка и масштабирование. |
+| **Экранная клавиатура Maliit** | `РАБОТАЕТ` | Двуязычная (EN + RU), исправлена опечатка upstream в QML, добавлены масштабируемые векторные иконки (Shift, Backspace, Enter, Language, Space). |
 | **Камеры (Intel IPU2 / AtomISP)** | `EXPERIMENTAL` | Драйверы atomisp в ядре 6.12 включены, но стабильность захвата видео не гарантируется. |
 
 ---

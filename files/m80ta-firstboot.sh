@@ -38,13 +38,16 @@ if command -v sshd >/dev/null 2>&1; then
     }
 fi
 
-# 5. Fix permissions strictly for vivotab .ssh directory
-if [ -d /home/vivotab/.ssh ]; then
-    chown -R 1000:1000 /home/vivotab/.ssh
-    chmod 700 /home/vivotab/.ssh
-    if [ -f /home/vivotab/.ssh/authorized_keys ]; then
-        chmod 600 /home/vivotab/.ssh/authorized_keys
+# 5. Ensure user vivotab ownership, permissions, and GPU render group
+if id vivotab >/dev/null 2>&1; then
+    chown -R 1000:1000 /home/vivotab
+    if [ -d /home/vivotab/.ssh ]; then
+        chmod 700 /home/vivotab/.ssh
+        if [ -f /home/vivotab/.ssh/authorized_keys ]; then
+            chmod 600 /home/vivotab/.ssh/authorized_keys
+        fi
     fi
+    usermod -aG render vivotab 2>/dev/null || true
 fi
 
 echo "m80ta-firstboot: initialization successfully completed." | logger -t m80ta-firstboot
