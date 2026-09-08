@@ -1,0 +1,2 @@
+evdev:name:Asus WMI hotkeys:*
+ KEYBOARD_KEY_f4=leftmeta

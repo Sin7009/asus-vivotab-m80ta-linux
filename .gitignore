@@ -4,3 +4,7 @@ output/
 *.sha256
 *.iso
 .DS_Store
+files/authorized_keys
+files/m80ta-wifi.nmconnection
+build.log
+build.pid
